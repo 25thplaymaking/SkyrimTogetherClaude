@@ -20,7 +20,8 @@ jobs:
       upload-build-for-next-job: true
 
   package-and-upload:
-    runs-on: windows-latest
+    # Pinned for the same reason as windows.yml -- see the comment there.
+    runs-on: windows-2022
     needs: build-windows
     steps:
       - name: Download artifact from the previous job

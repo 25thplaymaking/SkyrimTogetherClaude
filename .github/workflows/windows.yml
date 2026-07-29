@@ -27,7 +27,13 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [windows-latest]
+        # Pinned to windows-2022, NOT windows-latest. The windows-latest image
+        # now ships a Visual Studio that xmake 2.9.8 does not recognise: it
+        # reports "checking for the c++ compiler (cxx) ... clang", then package
+        # builds that need MSVC die with "cmake.lua:110: vs not found!".
+        # windows-2022 also matches the VS 2022 toolchain used for local builds
+        # (see BUILDING.md), so CI and developers compile with the same MSVC.
+        os: [windows-2022]
         arch: [x64]
 
     runs-on: ${{ matrix.os }}
