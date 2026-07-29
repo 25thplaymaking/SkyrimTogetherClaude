@@ -27,6 +27,34 @@
 
 ---
 
+## Status — 2026-07-28
+
+Branch `feat/phase-0`, 9 commits, pushed.
+
+| Task | State | Notes |
+|---|---|---|
+| A1 Toolchain + submodule pins | **Done** | `Tools/build-env.cmd`, `BUILDING.md`. Full local build green. |
+| A2 Fork CI | **Done** | Actions were already enabled. Linux **green**. Windows needed a `windows-2022` pin. |
+| A3 Release workflow | Not started | |
+| A4 Docker / grain.silo | Not started | Linux CI green is the precondition, and it passed. |
+| B1 CommandService | **Done** | Priv-esc, null deref, teleport disclosure. |
+| B2 Duplicate CVar | **Done** | Runtime divergence not demonstrable — see commit. |
+| B3 CancelAssignmentRequest | **Done** | Plus an unchecked `view.find()` deref. |
+| B4 `reconnect()` binding | Not started | Needs in-game verification. |
+| B5 Dead admin branch | **Done** | Deleted, for a better reason than planned — see commit. |
+| C1 NetworkMetrics | **Done** | 23 assertions incl. concurrency. |
+| C2 GameServer wiring | **Done** | Verified live via `/metrics`. |
+| C3 `/metrics` endpoint | **Done** | Verified: healthz 200, histogram advancing, loopback-bound. |
+| C4 Client NetworkView | Not started | Needs in-game verification. |
+| D1 Traffic capture | Not started | **Blocked on Bryce** — needs a real play session. |
+| D2 STLoadClient | Not started | Consumes D1's capture. |
+| D3 Baseline | Not started | Phase 0 exit criterion. |
+| D4 Publish | Not started | |
+
+Test baseline moved 28 assertions / 5 cases → **57 / 12**, all passing.
+
+---
+
 ## Workstream A — Build & release foundation
 
 ### Task A1: Pin submodules and pin the MSVC toolchain
