@@ -565,21 +565,26 @@ void GameServer::OnConsume(const void* apData, const uint32_t aSize, const Conne
     ViewBuffer buf((uint8_t*)apData, aSize);
     Buffer::Reader reader(&buf);
 
-    // TODO: ClientAdminMessageFactory
-    /*if (m_adminSessions.contains(aConnectionId)) [[unlikely]]
-    {
-        const ClientAdminMessageFactory factory;
-        auto pMessage = factory.Extract(reader);
-        if (!pMessage)
-        {
-            spdlog::error("Couldn't parse packet from {:x}", aConnectionId);
-            return;
-        }
-
-        m_adminMessageHandlers[pMessage->GetOpcode()](pMessage, aConnectionId);
-    }
-    else
-    {*/
+    // An admin-session branch used to sit here, routing packets from connections
+    // in m_adminSessions through ClientAdminMessageFactory. It is deliberately
+    // gone rather than revived.
+    //
+    // Its TODO claimed ClientAdminMessageFactory was missing; that is stale --
+    // it exists in Code/admin_protocol. The real reason it must not come back is
+    // that it belongs to a superseded architecture in which an admin was a
+    // *dedicated non-player connection* (see the matching removed block in
+    // HandleAuthenticationRequest, which replied AdminSessionOpen and never
+    // joined the sender as a player).
+    //
+    // The live model is different: an admin is an ordinary player who supplied
+    // sAdminPassword, and who then completes the normal join. GetAdminByUsername
+    // resolves admin sessions straight to Player*. Under that model this branch
+    // would parse an admin's ordinary gameplay traffic with the admin factory
+    // and break every message they send.
+    //
+    // m_adminSessions itself stays -- CommandService::IsAdmin authorises against
+    // it. The now-unreachable m_adminMessageHandlers bindings are left alone;
+    // deciding the fate of the admin protocol is Phase 3 scope.
     const ClientMessageFactory factory;
     auto pMessage = factory.Extract(reader);
     if (!pMessage)
@@ -589,7 +594,6 @@ void GameServer::OnConsume(const void* apData, const uint32_t aSize, const Conne
     }
 
     m_messageHandlers[pMessage->GetOpcode()](pMessage, aConnectionId);
-    //}
 }
 
 void GameServer::OnConnection(const ConnectionId_t aHandle)
@@ -999,14 +1003,10 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
 
         m_pWorld->GetDispatcher().trigger(PlayerJoinEvent(pPlayer, acRequest->WorldSpaceId, acRequest->CellId, acRequest->PlayerTime));
     }
-    /*else if (acRequest->Token == sAdminPassword.value() && !sAdminPassword.empty())
-    {
-        AdminSessionOpen response;
-        Send(aConnectionId, response);
-
-        m_adminSessions.insert(aConnectionId);
-        spdlog::warn("New admin session for {:x} '{}'", aConnectionId, remoteAddress);
-    } */
+    // The other half of the superseded admin design lived here: it answered the
+    // admin password with AdminSessionOpen and deliberately did NOT join the
+    // sender as a player. Superseded by the branch above, where an admin is a
+    // normal player whose token matched sAdminPassword. See OnConsume.
     else
     {
         spdlog::info("New player {:x} '{}' has a bad password, kicking.", aConnectionId, remoteAddress);
