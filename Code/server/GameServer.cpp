@@ -19,6 +19,8 @@
 #include <Messages/NotifyPlayerJoined.h>
 #include <Messages/NotifyPlayerLeft.h>
 #include <Messages/NotifySettingsChange.h>
+#include <Metrics/MetricsServer.h>
+#include <Metrics/NetworkMetrics.h>
 #include <console/ConsoleRegistry.h>
 #include <resources/ResourceCollection.h>
 
@@ -193,10 +195,19 @@ GameServer::GameServer(Console::ConsoleRegistry& aConsole) noexcept
     UpdateTimeScale();
 
     m_pResources = MakeUnique<Resources::ResourceCollection>();
+
+    // Started here rather than in Initialize(), which returns early when the
+    // ModPolicy check fails -- metrics are most useful precisely when the server
+    // is misbehaving at startup.
+    m_pMetricsServer = std::make_unique<MetricsServer>();
+    m_pMetricsServer->Start();
 }
 
 GameServer::~GameServer()
 {
+    if (m_pMetricsServer)
+        m_pMetricsServer->Stop();
+
     s_pInstance = nullptr;
 }
 
@@ -556,6 +567,11 @@ void GameServer::OnUpdate()
 
     dispatcher.trigger(UpdateEvent{cDeltaSeconds});
 
+    // Time spent *inside* the tick, which is the number that matters for
+    // headroom. cDelta above is the wall gap between ticks and includes idle.
+    const auto cTickEnd = std::chrono::high_resolution_clock::now();
+    NetworkMetrics::Get().RecordTick(std::chrono::duration<double, std::milli>(cTickEnd - cNow).count());
+
     if (m_requestStop)
         Close();
 }
@@ -593,6 +609,13 @@ void GameServer::OnConsume(const void* apData, const uint32_t aSize, const Conne
         return;
     }
 
+    // aSize is the payload after Snappy decompression -- TiltedConnect handles
+    // compression below this seam, so the true on-wire size is not observable
+    // here and both figures are recorded as aSize. Surfacing the compressed
+    // inbound size is Phase 1 channel work.
+    if (const Player* pPlayer = m_pWorld->GetPlayerManager().GetByConnectionId(aConnectionId))
+        NetworkMetrics::Get().RecordReceived(pPlayer->GetId(), static_cast<uint16_t>(pMessage->GetOpcode()), aSize, aSize);
+
     m_messageHandlers[pMessage->GetOpcode()](pMessage, aConnectionId);
 }
 
@@ -607,6 +630,12 @@ void GameServer::OnDisconnection(const ConnectionId_t aConnectionId, EDisconnect
     m_adminSessions.erase(aConnectionId);
 
     auto* pPlayer = m_pWorld->GetPlayerManager().GetByConnectionId(aConnectionId);
+
+    // Drop this player's counters before the Player is destroyed, otherwise ids
+    // accumulate for the lifetime of the process. Server-wide opcode totals are
+    // unaffected.
+    if (pPlayer)
+        NetworkMetrics::Get().RemovePlayer(pPlayer->GetId());
 
     spdlog::info("Connection ended {:x} - '{}' disconnected", aConnectionId, (pPlayer != NULL ? pPlayer->GetUsername().c_str() : "NULL"));
 
@@ -667,6 +696,13 @@ void GameServer::Send(const ConnectionId_t aConnectionId, const ServerMessage& a
 
     TiltedPhoques::PacketView packet(reinterpret_cast<char*>(buffer.GetWriteData()), static_cast<uint32_t>(writer.Size()));
     Server::Send(aConnectionId, &packet);
+
+    // Serialized payload size. Compression happens below this seam in
+    // TiltedConnect, so as on the inbound path both figures are the payload
+    // until Phase 1 exposes the compressed size.
+    const auto cPayloadBytes = static_cast<uint32_t>(writer.Size());
+    if (const Player* pPlayer = m_pWorld->GetPlayerManager().GetByConnectionId(aConnectionId))
+        NetworkMetrics::Get().RecordSent(pPlayer->GetId(), static_cast<uint16_t>(acServerMessage.GetOpcode()), cPayloadBytes, cPayloadBytes);
 
     s_allocator.Reset();
 }

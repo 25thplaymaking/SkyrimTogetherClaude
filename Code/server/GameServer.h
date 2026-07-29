@@ -12,6 +12,7 @@ using TiltedPhoques::String;
 struct AuthenticationRequest;
 struct Player;
 struct PartyComponent;
+class MetricsServer;
 
 namespace Resources
 {
@@ -123,6 +124,7 @@ private:
     TiltedPhoques::Map<ConnectionId_t, entt::entity> m_connectionToEntity;
 
     UniquePtr<World> m_pWorld;
+    std::unique_ptr<MetricsServer> m_pMetricsServer;
 
     bool m_requestStop;
 
