@@ -8,6 +8,7 @@ struct CharacterInteriorCellChangeEvent;
 struct CharacterSpawnedEvent;
 struct World;
 struct AssignCharacterRequest;
+struct CancelAssignmentRequest;
 struct CharacterSpawnRequest;
 struct ClientReferencesMoveRequest;
 struct RequestFactionsChanges;
@@ -41,6 +42,7 @@ protected:
     void OnCharacterExteriorCellChange(const CharacterExteriorCellChangeEvent& acEvent) const noexcept;
     void OnCharacterInteriorCellChange(const CharacterInteriorCellChangeEvent& acEvent) const noexcept;
     void OnAssignCharacterRequest(const PacketEvent<AssignCharacterRequest>& acMessage) const noexcept;
+    void OnCancelAssignmentRequest(const PacketEvent<CancelAssignmentRequest>& acMessage) const noexcept;
     void OnOwnershipTransferRequest(const PacketEvent<RequestOwnershipTransfer>& acMessage) const noexcept;
     void OnOwnershipTransferEvent(const OwnershipTransferEvent& acEvent) const noexcept;
     void OnOwnershipClaimRequest(const PacketEvent<RequestOwnershipClaim>& acMessage) const noexcept;
@@ -71,6 +73,7 @@ private:
     entt::scoped_connection m_exteriorCellChangeEventConnection;
     entt::scoped_connection m_interiorCellChangeEventConnection;
     entt::scoped_connection m_characterAssignRequestConnection;
+    entt::scoped_connection m_cancelAssignmentConnection;
     entt::scoped_connection m_transferOwnershipConnection;
     entt::scoped_connection m_ownershipTransferEventConnection;
     entt::scoped_connection m_claimOwnershipConnection;

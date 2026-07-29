@@ -15,6 +15,7 @@
 
 #include <Messages/AssignCharacterRequest.h>
 #include <Messages/AssignCharacterResponse.h>
+#include <Messages/CancelAssignmentRequest.h>
 #include <Messages/ServerReferencesMoveRequest.h>
 #include <Messages/ClientReferencesMoveRequest.h>
 #include <Messages/CharacterSpawnRequest.h>
@@ -52,6 +53,7 @@ CharacterService::CharacterService(World& aWorld, entt::dispatcher& aDispatcher)
     , m_interiorCellChangeEventConnection(aDispatcher.sink<CharacterInteriorCellChangeEvent>().connect<&CharacterService::OnCharacterInteriorCellChange>(this))
     , m_exteriorCellChangeEventConnection(aDispatcher.sink<CharacterExteriorCellChangeEvent>().connect<&CharacterService::OnCharacterExteriorCellChange>(this))
     , m_characterAssignRequestConnection(aDispatcher.sink<PacketEvent<AssignCharacterRequest>>().connect<&CharacterService::OnAssignCharacterRequest>(this))
+    , m_cancelAssignmentConnection(aDispatcher.sink<PacketEvent<CancelAssignmentRequest>>().connect<&CharacterService::OnCancelAssignmentRequest>(this))
     , m_transferOwnershipConnection(aDispatcher.sink<PacketEvent<RequestOwnershipTransfer>>().connect<&CharacterService::OnOwnershipTransferRequest>(this))
     , m_ownershipTransferEventConnection(aDispatcher.sink<OwnershipTransferEvent>().connect<&CharacterService::OnOwnershipTransferEvent>(this))
     , m_claimOwnershipConnection(aDispatcher.sink<PacketEvent<RequestOwnershipClaim>>().connect<&CharacterService::OnOwnershipClaimRequest>(this))
@@ -254,6 +256,36 @@ void CharacterService::OnAssignCharacterRequest(const PacketEvent<AssignCharacte
     CreateCharacter(acMessage);
 }
 
+void CharacterService::OnCancelAssignmentRequest(const PacketEvent<CancelAssignmentRequest>& acMessage) const noexcept
+{
+    // The client sends this when it destroys a local actor that was still
+    // waiting on an assignment. Assignment is synchronous server-side, so by the
+    // time this arrives the entity already exists and is owned by the sender --
+    // but the client has thrown away the AssignCharacterResponse. Without this
+    // handler the entity leaked: owned by a player with no local actor, never
+    // updated, and unclaimable by anyone else until that player disconnected.
+    const auto view = m_world.view<OwnerComponent, AssignmentCookieComponent>();
+
+    for (auto entity : view)
+    {
+        const auto& ownerComponent = view.get<OwnerComponent>(entity);
+        const auto& cookieComponent = view.get<AssignmentCookieComponent>(entity);
+
+        // Cookies are only unique per client, so the owner must match too.
+        // Matching on owner also means an entity whose ownership has since
+        // legitimately transferred elsewhere is left alone.
+        if (ownerComponent.GetOwner() != acMessage.pPlayer || cookieComponent.Cookie != acMessage.Packet.Cookie)
+            continue;
+
+        spdlog::debug("Cancelled assignment cookie {:X} for player {:X}, releasing character {:X}", acMessage.Packet.Cookie, acMessage.pPlayer->GetId(), World::ToInteger(entity));
+
+        m_world.GetDispatcher().trigger(CharacterRemoveEvent(World::ToInteger(entity)));
+        return;
+    }
+
+    spdlog::debug("Cancelled assignment cookie {:X} for player {:X} matched no owned character", acMessage.Packet.Cookie, acMessage.pPlayer->GetId());
+}
+
 void CharacterService::OnOwnershipTransferRequest(const PacketEvent<RequestOwnershipTransfer>& acMessage) const noexcept
 {
     auto& message = acMessage.Packet;
@@ -351,6 +383,15 @@ void CharacterService::OnCharacterRemoveEvent(const CharacterRemoveEvent& acEven
 {
     const auto view = m_world.view<OwnerComponent>();
     const auto it = view.find(static_cast<entt::entity>(acEvent.ServerId));
+
+    // find() was dereferenced unchecked. Any path that fires this event twice
+    // for the same id -- or for an id that never existed -- read past the end.
+    if (it == view.end())
+    {
+        spdlog::warn("Character remove requested for unknown server id {:X}", acEvent.ServerId);
+        return;
+    }
+
     const auto& characterOwnerComponent = view.get<OwnerComponent>(*it);
 
     GameServer::Get()->GetWorld().GetScriptService().HandleCharacterDestoy(*it);
@@ -586,6 +627,11 @@ void CharacterService::CreateCharacter(const PacketEvent<AssignCharacterRequest>
     auto* const pServer = GameServer::Get();
 
     m_world.emplace<OwnerComponent>(cEntity, acMessage.pPlayer);
+
+    // Lets a later CancelAssignmentRequest release exactly this entity. Only
+    // set on the create path -- the "already managed" branch above returns a
+    // pre-existing world NPC that a cancellation must not destroy.
+    m_world.emplace<AssignmentCookieComponent>(cEntity, message.Cookie);
 
     auto& cellIdComponent = m_world.emplace<CellIdComponent>(cEntity, message.CellId);
     if (message.WorldSpaceId != GameId{})
