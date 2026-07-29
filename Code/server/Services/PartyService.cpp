@@ -19,11 +19,11 @@
 #include <Messages/PartyKickRequest.h>
 #include <Messages/NotifyPlayerJoined.h>
 
-#include <Setting.h>
-namespace
-{
-Console::Setting bAutoPartyJoin{"Gameplay:bAutoPartyJoin", "Join parties automatically, as long as there is only one party in the server", true};
-}
+// bAutoPartyJoin is defined in GameServer.cpp. It used to be re-declared here in
+// an anonymous namespace, which self-registered a second entry under the same
+// name: /set mutated one object while the reads below saw the other, so the
+// setting appeared to do nothing.
+#include <ServerSettingsRegistry.h>
 
 PartyService::PartyService(World& aWorld, entt::dispatcher& aDispatcher) noexcept
     : m_world(aWorld)
