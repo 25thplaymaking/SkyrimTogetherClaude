@@ -511,3 +511,55 @@ TEST_CASE("StringCache", "[encoding.string_cache]")
         REQUIRE(update == recvUpdate);
     }
 }
+
+TEST_CASE("Command messages", "[encoding.commands]")
+{
+    // Guards the wire contract that CommandService depends on. The server must
+    // authorise SetTimeCommandRequest against the authenticated sender, never
+    // against the PlayerId carried here -- that field is attacker-controlled.
+    GIVEN("SetTimeCommandRequest")
+    {
+        Buffer buff(1000);
+
+        SetTimeCommandRequest request;
+        request.Hours = 13;
+        request.Minutes = 45;
+        request.PlayerId = 7;
+
+        Buffer::Writer writer(&buff);
+        request.Serialize(writer);
+
+        Buffer::Reader reader(&buff);
+
+        const ClientMessageFactory factory;
+        auto pMessage = factory.Extract(reader);
+
+        REQUIRE(pMessage);
+        REQUIRE(pMessage->GetOpcode() == request.GetOpcode());
+
+        auto pRequest = CastUnique<SetTimeCommandRequest>(std::move(pMessage));
+        REQUIRE(*pRequest == request);
+    }
+
+    GIVEN("CancelAssignmentRequest")
+    {
+        Buffer buff(1000);
+
+        CancelAssignmentRequest request;
+        request.Cookie = 0xDEADBEEF;
+
+        Buffer::Writer writer(&buff);
+        request.Serialize(writer);
+
+        Buffer::Reader reader(&buff);
+
+        const ClientMessageFactory factory;
+        auto pMessage = factory.Extract(reader);
+
+        REQUIRE(pMessage);
+        REQUIRE(pMessage->GetOpcode() == request.GetOpcode());
+
+        auto pRequest = CastUnique<CancelAssignmentRequest>(std::move(pMessage));
+        REQUIRE(*pRequest == request);
+    }
+}

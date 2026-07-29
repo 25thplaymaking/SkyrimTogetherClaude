@@ -16,35 +16,72 @@ CommandService::CommandService(World& aWorld, entt::dispatcher& aDispatcher) noe
     m_teleportConnection = aDispatcher.sink<PacketEvent<TeleportCommandRequest>>().connect<&CommandService::OnTeleportCommandRequest>(this);
 }
 
-void CommandService::OnSetTimeCommand(const PacketEvent<SetTimeCommandRequest>& acMessage) const noexcept
+namespace
 {
-    NotifySetTimeResult response{};
+// Authorises the *authenticated* sender.
+//
+// The identity must come from acMessage.pPlayer, which the server resolved from
+// the connection, and never from a PlayerId carried inside the packet -- that
+// field is entirely attacker-controlled, so trusting it let any client execute
+// admin commands by naming an admin's id.
+//
+// GetByConnectionId may return nullptr for a session that has gone away, so the
+// lookup is null-checked; dereferencing it unchecked crashed the server.
+bool IsAdmin(const Player* apPlayer) noexcept
+{
+    if (!apPlayer)
+        return false;
 
-    const auto cPlayerId = static_cast<uint32_t>(acMessage.Packet.PlayerId);
-
-    // Only set time if player is an admin
     for (const auto session : GameServer::Get()->GetAdminSessions())
     {
-        if (PlayerManager::Get()->GetByConnectionId(session)->GetId() == cPlayerId)
-        {
-            const auto cHours = static_cast<int>(acMessage.Packet.Hours);
-            const auto cMinutes = static_cast<int>(acMessage.Packet.Minutes);
-
-            m_world.GetCalendarService().SetTime(cHours, cMinutes, m_world.GetCalendarService().GetTimeScale());
-
-            response.Result = NotifySetTimeResult::SetTimeResult::kSuccess;
-            acMessage.pPlayer->Send(response);
-
-            return;
-        }
+        const Player* pAdmin = PlayerManager::Get()->GetByConnectionId(session);
+        if (pAdmin && pAdmin->GetId() == apPlayer->GetId())
+            return true;
     }
 
-    response.Result = NotifySetTimeResult::SetTimeResult::kNoPermission;
+    return false;
+}
+} // namespace
+
+void CommandService::OnSetTimeCommand(const PacketEvent<SetTimeCommandRequest>& acMessage) const noexcept
+{
+    if (!acMessage.pPlayer)
+        return;
+
+    NotifySetTimeResult response{};
+
+    if (!IsAdmin(acMessage.pPlayer))
+    {
+        response.Result = NotifySetTimeResult::SetTimeResult::kNoPermission;
+        acMessage.pPlayer->Send(response);
+        return;
+    }
+
+    const auto cHours = static_cast<int>(acMessage.Packet.Hours);
+    const auto cMinutes = static_cast<int>(acMessage.Packet.Minutes);
+
+    m_world.GetCalendarService().SetTime(cHours, cMinutes, m_world.GetCalendarService().GetTimeScale());
+
+    response.Result = NotifySetTimeResult::SetTimeResult::kSuccess;
     acMessage.pPlayer->Send(response);
 }
 
 void CommandService::OnTeleportCommandRequest(const PacketEvent<TeleportCommandRequest>& acMessage) const noexcept
 {
+    if (!acMessage.pPlayer)
+        return;
+
+    // This handler had no permission check at all: it returned any named
+    // player's exact position, cell and worldspace to any requester. An empty
+    // response is already what "target not found" looks like, so a denial is
+    // indistinguishable from a miss and discloses nothing.
+    if (!IsAdmin(acMessage.pPlayer))
+    {
+        TeleportCommandResponse denied{};
+        acMessage.pPlayer->Send(denied);
+        return;
+    }
+
     Player* pTargetPlayer = nullptr;
     for (Player* pPlayer : m_world.GetPlayerManager())
     {
