@@ -88,3 +88,7 @@ distrib_releasedbg/
 new_addresses.txt
 
 packaged/*
+
+# Load-test traffic captures (session data, can be large)
+capture.bin
+*.capture
